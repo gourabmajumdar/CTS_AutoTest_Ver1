@@ -1,0 +1,190 @@
+import subprocess
+import yaml
+import glob
+import os
+from datetime import datetime
+
+# Load configuration from YAML
+with open("config.yaml", "r", encoding="utf8") as file:
+    config = yaml.safe_load(file)
+
+
+def get_all_script_files():
+    """Gets all Python files in the scripts directory."""
+    files = glob.glob("generated-scripts/*.py")
+    if not files:
+        print("No Python files found in generated-scripts directory.")
+        return []
+
+    print(f"Found {len(files)} script files:")
+    for file in files:
+        print(f"  - {file}")
+    return files
+
+
+def run_command_to_file(command, output_file):
+    """Executes a command and writes output to file."""
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding="utf-8")
+    with open(output_file, "w", encoding="utf8") as file:
+        file.write(result.stdout)
+        if result.stderr:
+            file.write(f"{result.stderr}\n")
+    return result
+
+
+def run_tool_on_single_file(tool_name, file_path, options):
+    """Run a specific tool on a single file and return result"""
+    command = f"{tool_name} {file_path} {options}"
+    result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding="utf-8")
+    return {
+        'returncode': result.returncode,
+        'success': result.returncode == 0,
+        'stdout': result.stdout,
+        'stderr': result.stderr
+    }
+
+
+def create_reports_folder():
+    """Creates the reports folder if it does not exist."""
+    if not os.path.exists("reports"):
+        os.makedirs("reports")
+        print("Created reports folder.")
+    else:
+        print("Reports folder already exists.")
+
+
+def delete_old_summaries():
+    reports_folder = "reports/"
+    if os.path.exists(reports_folder):
+        files_removed = 0
+        for filename in os.listdir(reports_folder):
+            file_path = os.path.join(reports_folder, filename)
+            try:
+                if filename.startswith("summary"):
+                    os.remove(file_path)
+                    files_removed += 1
+                    print(f"Removed file: {file_path}")
+            except Exception as e:
+                print(f"Error removing file {file_path}: {e}")
+        print(f"Cleanup completed: {files_removed} old summary files removed")
+    else:
+        print(f"Reports folder '{reports_folder}' does not exist.")
+
+
+def write_combined_summary(all_results, analyzed_files):
+    """Write the main summary.txt with combined results"""
+    with open("reports/summary.txt", "w", encoding="utf8") as f:
+        f.write("CODE REVIEW SUMMARY\n")
+        f.write("=" * 20 + "\n")
+        f.write(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"Files analyzed: {len(analyzed_files)}\n")
+
+        for file in analyzed_files:
+            f.write(f"  - {file}\n")
+        f.write("\n")
+
+        # Calculate overall status for each tool
+        tools = ['black - Code Formatting', 'flake8 - Style & Lint Checks',
+                 'bandit - Security Analysis', 'pylint - Static Code Analysis']
+
+        for tool in tools:
+            # Check if ANY file has issues for this tool
+            any_issues = any(not all_results[file][tool]['success'] for file in analyzed_files)
+            overall_return_code = max(all_results[file][tool]['returncode'] for file in analyzed_files)
+
+            f.write(f"{tool.upper()}:\n")
+            f.write(f"  Return Code: {overall_return_code}\n")
+            f.write(f"  Status: {'Issues Found' if any_issues else 'Success'}\n")
+            f.write("\n")
+
+
+def write_individual_summaries(all_results, analyzed_files):
+    """Write individual summary files for each analyzed file"""
+    for i, file_path in enumerate(analyzed_files, 1):
+        with open(f"reports/summary{i}.txt", "w", encoding="utf8") as f:
+            f.write("CODE REVIEW SUMMARY\n")
+            f.write("=" * 20 + "\n")
+            f.write(f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"File analyzed: {file_path}\n\n")
+
+            file_results = all_results[file_path]
+
+            for tool_name, result in file_results.items():
+                # Determine icon based on individual file result
+                if result['success']:
+                    icon = "✅"
+                elif 'pylint' in tool_name.lower():
+                    icon = "❌"  # Red cross for pylint issues
+                else:
+                    icon = "⚠️"  # Amber warning for other tools
+
+                f.write(f"{tool_name.upper()}: {icon}\n")
+                f.write(f"  Return Code: {result['returncode']}\n")
+                f.write(f"  Status: {'Success' if result['success'] else 'Issues Found'}\n")
+                f.write("\n")
+
+
+# Main execution
+create_reports_folder()
+
+# Get all script files to analyze
+all_files = get_all_script_files()
+if not all_files:
+    print("No files to analyze. Exiting.")
+    exit(1)
+
+print(f"Analyzing {len(all_files)} files individually...")
+
+# Store results for each file
+all_results = {}
+
+# Tool configurations
+tools_config = {
+    'black - Code Formatting': ('black', config["linting"]["black"]),
+    'flake8 - Style & Lint Checks': ('flake8', config["linting"]["flake8"]),
+    'bandit - Security Analysis': ('bandit', config["security"]["bandit"]),
+    'pylint - Static Code Analysis': ('pylint', config["linting"]["pylint"])
+}
+
+# Analyze each file individually
+for file_path in all_files:
+    print(f"\nAnalyzing: {file_path}")
+    all_results[file_path] = {}
+
+    for tool_display_name, (tool_command, tool_options) in tools_config.items():
+        print(f"  Running {tool_command}...")
+        result = run_tool_on_single_file(tool_command, file_path, tool_options)
+        all_results[file_path][tool_display_name] = result
+
+        # Write individual tool output to file (for the last file or combined)
+        output_file = f"reports/{tool_command}_output.txt"
+        if file_path == all_files[0]:  # First file - create new
+            mode = "w"
+        else:  # Subsequent files - append
+            mode = "a"
+
+        with open(output_file, mode, encoding="utf8") as f:
+            if mode == "a":
+                f.write(f"\n\n=== {file_path} ===\n")
+            f.write(result['stdout'])
+            if result['stderr']:
+                f.write(f"\nSTDERR:\n{result['stderr']}")
+
+# Clean up old summaries
+delete_old_summaries()
+
+# Write summary files
+write_combined_summary(all_results, all_files)
+write_individual_summaries(all_results, all_files)
+
+print("\nCode analysis completed successfully!")
+print(f"Reports generated in 'reports/' directory")
+print(f"Main summary available in 'reports/summary.txt'")
+print(f"Individual summaries: summary1.txt, summary2.txt, etc.")
+
+# Print quick results overview
+print(f"\nQuick Results Overview:")
+for i, file_path in enumerate(all_files, 1):
+    file_results = all_results[file_path]
+    issues = sum(1 for result in file_results.values() if not result['success'])
+    print(f"  summary{i}.txt ({file_path}): {4 - issues}/4 tools passed, {issues} issues found")

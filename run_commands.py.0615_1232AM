@@ -2,65 +2,38 @@ import subprocess
 import yaml
 import glob
 import os
-import json
 from datetime import datetime
 
 # Load configuration from YAML
 with open("config.yaml", "r", encoding="utf8") as file:
     config = yaml.safe_load(file)
 
-def load_order_mapping():
-    """Load the order mapping created by Auto_test_gen.py"""
-    mapping_file = os.path.join("generated-scripts", "order_mapping.json")
-    if os.path.exists(mapping_file):
-        try:
-            with open(mapping_file, 'r') as f:
-                order_mapping = json.load(f)
-            print(f"Loaded order mapping with {len(order_mapping)} entries")
-            return order_mapping
-        except Exception as e:
-            print(f"Error loading order mapping: {e}")
-            return None
-    else:
-        print("Order mapping file not found, falling back to alphabetical order")
-        return None
-
 
 def get_all_script_files():
-    """Gets all Python files in the scripts directory using order mapping."""
-
-    # **NEW: Try to use order mapping first**
-    order_mapping = load_order_mapping()
-
-    if order_mapping:
-        # Use the explicit order from mapping
-        ordered_files = []
-        for item in sorted(order_mapping, key=lambda x: x['order_index']):
-            script_path = f"generated-scripts/{item['script_name']}"
-            if os.path.exists(script_path):
-                ordered_files.append(script_path)
-                print(f"  {item['order_index']}. {script_path} (from {item['source_file']})")
-            else:
-                print(f"WARNING: Mapped script not found: {script_path}")
-
-        if ordered_files:
-            print(f"Found {len(ordered_files)} script files (using order mapping):")
-            return ordered_files
-
-    # **FALLBACK: Use alphabetical if no mapping available**
+    """Gets all Python files in the scripts directory in consistent order."""
     files = glob.glob("generated-scripts/*.py")
     if not files:
         print("No Python files found in generated-scripts directory.")
         return []
 
-    # Exclude the mapping file itself
-    files = [f for f in files if not f.endswith("order_mapping.json")]
-    files.sort()  # Alphabetical fallback
+    # Sort files by creation time to maintain consistent order with frontend
+    files_with_time = []
+    for file in files:
+        try:
+            creation_time = os.path.getctime(file)
+            files_with_time.append((file, creation_time))
+        except OSError:
+            # Fallback to alphabetical order if creation time unavailable
+            files_with_time.append((file, 0))
 
-    print(f"Found {len(files)} script files (alphabetical fallback):")
-    for i, file in enumerate(files, 1):
+    # Sort by creation time (oldest first)
+    files_with_time.sort(key=lambda x: x[1])
+    sorted_files = [file for file, _ in files_with_time]
+
+    print(f"Found {len(sorted_files)} script files (ordered by creation time):")
+    for i, file in enumerate(sorted_files, 1):
         print(f"  {i}. {file}")
-    return files
+    return sorted_files
 
 
 def run_command_to_file(command, output_file):

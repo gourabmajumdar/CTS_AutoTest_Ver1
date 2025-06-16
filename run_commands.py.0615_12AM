@@ -2,65 +2,38 @@ import subprocess
 import yaml
 import glob
 import os
-import json
 from datetime import datetime
 
 # Load configuration from YAML
 with open("config.yaml", "r", encoding="utf8") as file:
     config = yaml.safe_load(file)
 
-def load_order_mapping():
-    """Load the order mapping created by Auto_test_gen.py"""
-    mapping_file = os.path.join("generated-scripts", "order_mapping.json")
-    if os.path.exists(mapping_file):
-        try:
-            with open(mapping_file, 'r') as f:
-                order_mapping = json.load(f)
-            print(f"Loaded order mapping with {len(order_mapping)} entries")
-            return order_mapping
-        except Exception as e:
-            print(f"Error loading order mapping: {e}")
-            return None
-    else:
-        print("Order mapping file not found, falling back to alphabetical order")
-        return None
-
 
 def get_all_script_files():
-    """Gets all Python files in the scripts directory using order mapping."""
-
-    # **NEW: Try to use order mapping first**
-    order_mapping = load_order_mapping()
-
-    if order_mapping:
-        # Use the explicit order from mapping
-        ordered_files = []
-        for item in sorted(order_mapping, key=lambda x: x['order_index']):
-            script_path = f"generated-scripts/{item['script_name']}"
-            if os.path.exists(script_path):
-                ordered_files.append(script_path)
-                print(f"  {item['order_index']}. {script_path} (from {item['source_file']})")
-            else:
-                print(f"WARNING: Mapped script not found: {script_path}")
-
-        if ordered_files:
-            print(f"Found {len(ordered_files)} script files (using order mapping):")
-            return ordered_files
-
-    # **FALLBACK: Use alphabetical if no mapping available**
+    """Gets all Python files in the scripts directory in consistent order."""
     files = glob.glob("generated-scripts/*.py")
     if not files:
         print("No Python files found in generated-scripts directory.")
         return []
 
-    # Exclude the mapping file itself
-    files = [f for f in files if not f.endswith("order_mapping.json")]
-    files.sort()  # Alphabetical fallback
+    # Sort files by creation time to maintain consistent order with frontend
+    files_with_time = []
+    for file in files:
+        try:
+            creation_time = os.path.getctime(file)
+            files_with_time.append((file, creation_time))
+        except OSError:
+            # Fallback to alphabetical order if creation time unavailable
+            files_with_time.append((file, 0))
 
-    print(f"Found {len(files)} script files (alphabetical fallback):")
-    for i, file in enumerate(files, 1):
+    # Sort by creation time (oldest first)
+    files_with_time.sort(key=lambda x: x[1])
+    sorted_files = [file for file, _ in files_with_time]
+
+    print(f"Found {len(sorted_files)} script files (ordered by creation time):")
+    for i, file in enumerate(sorted_files, 1):
         print(f"  {i}. {file}")
-    return files
+    return sorted_files
 
 
 def run_command_to_file(command, output_file):
@@ -169,15 +142,7 @@ def write_combined_summary(all_results, analyzed_files):
             any_issues = any(not all_results[file][tool]['success'] for file in analyzed_files)
             overall_return_code = max(all_results[file][tool]['returncode'] for file in analyzed_files)
 
-            # ADD ICONS HERE - DETERMINE ICON BASED ON ISSUES AND TOOL TYPE
-            if not any_issues:
-                icon = "✅"
-            elif 'pylint' in tool.lower():
-                icon = "❌"  # Red cross for pylint issues
-            else:
-                icon = "⚠️"  # Amber warning for other tools
-
-            f.write(f"{tool.upper()}: {icon}\n")
+            f.write(f"{tool.upper()}:\n")
             f.write(f"  Return Code: {overall_return_code}\n")
             f.write(f"  Status: {'Issues Found' if any_issues else 'Success'}\n")
             f.write("\n")
@@ -277,29 +242,6 @@ def write_combined_tool_outputs(all_results, analyzed_files):
         print(f"Created combined output: {output_file}")
 
 
-# ADD THIS NEW FUNCTION TO SAVE RETURN CODES FOR COMPATIBILITY
-def save_return_codes_for_compatibility(all_results, analyzed_files):
-    """Save return codes in individual files for get_return_code() function compatibility"""
-    tools_mapping = {
-        'black - Code Formatting': 'black',
-        'flake8 - Style & Lint Checks': 'flake8',
-        'bandit - Security Analysis': 'bandit',
-        'pylint - Static Code Analysis': 'pylint'
-    }
-
-    # Calculate overall return codes (max across all files)
-    overall_return_codes = {}
-    for tool_display_name, tool_command in tools_mapping.items():
-        max_return_code = max(all_results[file][tool_display_name]['returncode'] for file in analyzed_files)
-        overall_return_codes[tool_command] = max_return_code
-
-    # Save overall return codes to files
-    for tool_command, return_code in overall_return_codes.items():
-        with open(f"reports/{tool_command}_return_code.txt", "w") as f:
-            f.write(str(return_code))
-        print(f"Saved return code for {tool_command}: {return_code}")
-
-
 # Main execution
 create_reports_folder()
 
@@ -348,9 +290,6 @@ write_individual_tool_outputs(all_results, all_files)
 
 # Write combined tool outputs
 write_combined_tool_outputs(all_results, all_files)
-
-# ADD THIS LINE: Save return codes for compatibility with get_return_code() function
-save_return_codes_for_compatibility(all_results, all_files)
 
 print("\nCode analysis completed successfully!")
 print(f"Reports generated in 'reports/' directory")

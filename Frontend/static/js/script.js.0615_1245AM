@@ -70,250 +70,6 @@ function cacheElements() {
     elements.toastMessage = document.getElementById('toastMessage');
 }
 
-function hideSaveButtons() {
-    console.log('🔒 Hiding save buttons after review/execution');
-
-    // Hide save buttons in multi-test areas
-    const saveButtons = document.querySelectorAll('.save-btn');
-    saveButtons.forEach(button => {
-        button.style.display = 'none';
-        console.log('🔒 Hidden save button in multi-test area');
-    });
-
-    // Hide save button in single text area (main code actions)
-    const codeActions = document.getElementById('codeActions');
-    if (codeActions) {
-        const singleSaveButton = codeActions.querySelector('button[onclick="saveCode()"]');
-        if (singleSaveButton) {
-            singleSaveButton.style.display = 'none';
-            console.log('🔒 Hidden save button in single text area');
-        }
-    }
-}
-
-function showSaveButtons() {
-    console.log('🔓 Showing save buttons');
-
-    // Show save buttons in multi-test areas
-    const saveButtons = document.querySelectorAll('.save-btn');
-    saveButtons.forEach(button => {
-        button.style.display = 'flex';
-        console.log('🔓 Showed save button in multi-test area');
-    });
-
-    // Show save button in single text area
-    const codeActions = document.getElementById('codeActions');
-    if (codeActions) {
-        const singleSaveButton = codeActions.querySelector('button[onclick="saveCode()"]');
-        if (singleSaveButton) {
-            singleSaveButton.style.display = 'inline-flex';
-            console.log('🔓 Showed save button in single text area');
-        }
-    }
-}
-
-// Simplified modal with just one OK button
-function showErrorModal(title, message, details = null) {
-    console.log(`🚨 Error Modal: ${title} - ${message}`);
-
-    // Create modal HTML with single OK button
-    const modalHTML = `
-        <div id="errorModal" class="error-modal-overlay" style="
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10000;
-            backdrop-filter: blur(3px);
-        ">
-            <div class="error-modal-content" style="
-                background: white;
-                border-radius: 15px;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
-                max-width: 500px;
-                width: 90%;
-                max-height: 80vh;
-                overflow-y: auto;
-                animation: modalSlideIn 0.3s ease-out;
-            ">
-                <div class="error-modal-header" style="
-                    background: linear-gradient(135deg, #ef4444, #dc2626);
-                    color: white;
-                    padding: 20px;
-                    border-radius: 15px 15px 0 0;
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                ">
-                    <div style="
-                        font-size: 24px;
-                        width: 40px;
-                        height: 40px;
-                        background: rgba(255, 255, 255, 0.2);
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                    ">🚨</div>
-                    <div>
-                        <h3 style="margin: 0; font-size: 1.3rem; font-weight: 600;">${title}</h3>
-                        <p style="margin: 5px 0 0 0; opacity: 0.9; font-size: 0.9rem;">Connection Error</p>
-                    </div>
-                </div>
-                
-                <div class="error-modal-body" style="
-                    padding: 25px;
-                    line-height: 1.6;
-                ">
-                    <div style="
-                        background: #fef2f2;
-                        border: 1px solid #fecaca;
-                        border-radius: 10px;
-                        padding: 15px;
-                        margin-bottom: 20px;
-                        color: #991b1b;
-                    ">
-                        <strong>Error Details:</strong><br>
-                        ${message}
-                    </div>
-                    
-                    ${details ? `
-                        <div style="
-                            background: #f9fafb;
-                            border: 1px solid #e5e7eb;
-                            border-radius: 10px;
-                            padding: 15px;
-                            margin-bottom: 20px;
-                            font-family: 'Courier New', monospace;
-                            font-size: 0.85rem;
-                            color: #374151;
-                            white-space: pre-wrap;
-                        ">
-                            <strong>Technical Details:</strong><br>
-                            ${details}
-                        </div>
-                    ` : ''}
-                    
-                    <div style="
-                        background: #eff6ff;
-                        border: 1px solid #bfdbfe;
-                        border-radius: 10px;
-                        padding: 15px;
-                        color: #1e40af;
-                    ">
-                        <strong>💡 Suggested Actions:</strong><br>
-                        • Check your network connection<br>
-                        • Verify Remote Device is powered on and accessible<br>
-                        • Try executing the test again using the Execute Code button<br>
-                        • Contact system administrator if problem persists
-                    </div>
-                </div>
-                
-                <div class="error-modal-footer" style="
-                    padding: 20px 25px;
-                    border-top: 1px solid #e5e7eb;
-                    display: flex;
-                    justify-content: center;
-                ">
-                    <button onclick="closeErrorModal()" style="
-                        background: #3b82f6;
-                        color: white;
-                        border: none;
-                        padding: 12px 32px;
-                        border-radius: 8px;
-                        cursor: pointer;
-                        font-weight: 600;
-                        font-size: 1rem;
-                        transition: all 0.3s ease;
-                        box-shadow: 0 3px 8px rgba(59, 130, 246, 0.3);
-                    " onmouseover="this.style.background='#2563eb'; this.style.transform='translateY(-2px)'"
-                       onmouseout="this.style.background='#3b82f6'; this.style.transform='translateY(0)'">
-                        ✓ OK
-                    </button>
-                </div>
-            </div>
-        </div>
-        
-        <style>
-            @keyframes modalSlideIn {
-                from {
-                    opacity: 0;
-                    transform: translateY(-50px) scale(0.9);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0) scale(1);
-                }
-            }
-            
-            .error-modal-overlay {
-                animation: fadeIn 0.3s ease-out;
-            }
-            
-            @keyframes fadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
-            }
-        </style>
-    `;
-
-    // Remove any existing modal
-    const existingModal = document.getElementById('errorModal');
-    if (existingModal) {
-        existingModal.remove();
-    }
-
-    // Add modal to page
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-
-    // Focus the OK button
-    const modal = document.getElementById('errorModal');
-    const okButton = modal.querySelector('button');
-    okButton.focus();
-
-    // Handle escape key
-    const handleEscape = (e) => {
-        if (e.key === 'Escape') {
-            closeErrorModal();
-        }
-    };
-
-    document.addEventListener('keydown', handleEscape);
-
-    // Store cleanup function
-    modal._cleanup = () => {
-        document.removeEventListener('keydown', handleEscape);
-    };
-}
-
-function closeErrorModal() {
-    const modal = document.getElementById('errorModal');
-    if (modal) {
-        // Cleanup event listeners
-        if (modal._cleanup) {
-            modal._cleanup();
-        }
-
-        // Animate out
-        modal.style.animation = 'fadeOut 0.3s ease-out';
-        setTimeout(() => {
-            modal.remove();
-        }, 300);
-    }
-
-    // Note: Execute button remains enabled - user can retry manually
-    console.log('✓ Modal closed - Execute button remains enabled for manual retry');
-}
-
-// Make functions globally available
-window.showErrorModal = showErrorModal;
-window.closeErrorModal = closeErrorModal;
-
 function initializeEventListeners() {
     console.log('🔧 Setting up event listeners...');
 
@@ -752,8 +508,8 @@ function resetButtonStates() {
     console.log('🔄 Resetting button states for new workflow');
 
     const generateBtn = document.getElementById('generateBtn');
-    const reviewBtn = document.getElementById('reviewBtn');
-    const executeBtn = document.getElementById('executeBtn');
+    const reviewBtn = document.getElementById('reviewBtn');    // CHANGED: Review comes before execute
+    const executeBtn = document.getElementById('executeBtn');  // CHANGED: Execute comes after review
     const ingestBtn = document.getElementById('ingestBtn');
     const reportButtons = document.getElementById('reportButtons');
 
@@ -773,6 +529,7 @@ function resetButtonStates() {
         generateBtn.style.cursor = 'not-allowed';
     }
 
+    // CHANGED: Review button is now second in workflow
     if (reviewBtn) {
         reviewBtn.disabled = true;
         reviewBtn.textContent = 'Review Code';
@@ -780,6 +537,7 @@ function resetButtonStates() {
         reviewBtn.style.cursor = 'not-allowed';
     }
 
+    // CHANGED: Execute button is now last in workflow
     if (executeBtn) {
         executeBtn.disabled = true;
         executeBtn.textContent = 'Execute Code';
@@ -799,14 +557,7 @@ function resetButtonStates() {
     updateCharCount();
     if (elements.codeActions) elements.codeActions.classList.remove('show');
     if (reportButtons) reportButtons.classList.remove('show');
-
-    // ADD THIS LINE: Show save buttons when resetting for new workflow
-    showSaveButtons();
 }
-
-// Make sure the new functions are globally available
-window.hideSaveButtons = hideSaveButtons;
-window.showSaveButtons = showSaveButtons;
 
 // ================================================================================================
 // TEXT AREA MANAGEMENT
@@ -1339,12 +1090,6 @@ Script: ${singleScript.script_name}
 
 ${result.review_report || result.main_summary || 'Review completed successfully.'}
 
-=== ACTIONS REQUIRED ===
-   ✅ 1. Look for [PASS] ✅ or [FAIL] ❌ indicators in the analysis above
-   ✅ 2. CHECK "OPEN REPORT" FOR COMPREHENSIVE HTML RESULTS
-   ✅ 3. CLICK THE **"EXECUTE CODE"** BUTTON IF NO CRITICAL ISSUES
-   ❌ 4. DO NOT PROCEED IF STATIC CODE ANALYSIS FAILS OR SECURITY VULNERABILITIES ARE FOUND
-   
 ████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 ██ ⚠️  IMPORTANT: CODE REVIEW COMPLETED SUCCESSFULLY. CHECK ERRORS/ISSUES BEFORE EXECUTION. ⚠️  ██
 ██ 🚀 CLICK "EXECUTE CODE" TO RUN THE REVIEWED TEST SCRIPT IF THERE ARE NO STATIC CODE ANALYSIS ISSUE. 🚀 ██
@@ -1386,9 +1131,6 @@ ${result.review_report || result.main_summary || 'Review completed successfully.
 
             if (reportButtons) reportButtons.classList.add('show');
 
-            // ADD THIS LINE: Hide save buttons after review completion
-            hideSaveButtons();
-
         } else {
             // Stop progress polling on failure
             stopProgressPolling();
@@ -1424,18 +1166,16 @@ ${result.review_report || result.main_summary || 'Review completed successfully.
 // MAIN FUNCTIONALITY - EXECUTE CODE (WITH REAL PROGRESS)
 // ================================================================================================
 
-// REPLACE your existing executeCode() function with this version
-
 async function executeCode() {
     console.log('⚡ Starting code execution...');
 
-    // Check for reviewed scripts
+    // CHANGED: Check for reviewed scripts
     if (generatedScripts.length === 0) {
         showToast('Please generate and review Python test code first!', 'warning');
         return;
     }
 
-    // Add additional check to ensure review is completed
+    // CHANGED: Add additional check to ensure review is completed
     const reviewBtn = document.getElementById('reviewBtn');
     if (reviewBtn && !reviewBtn.disabled && reviewBtn.textContent !== 'Review Completed ✓') {
         showToast('Please complete code review before execution!', 'warning');
@@ -1470,8 +1210,6 @@ async function executeCode() {
         console.log('🚀 Execution result:', result);
 
         if (result.success) {
-            // ✅ SUCCESS PATH - unchanged behavior
-
             // Store execution results
             executionResults = result.execution_results;
 
@@ -1525,7 +1263,7 @@ ${singleResult.stderr}
                 autoResizeTextarea();
             }
 
-            // Final button states for SUCCESS
+            // Final button states
             const generateBtn = document.getElementById('generateBtn');
             const reviewBtn = document.getElementById('reviewBtn');
 
@@ -1546,71 +1284,36 @@ ${singleResult.stderr}
             }
 
             showToast(`Executed ${executionResults.length} reviewed Python test scripts successfully!`, 'success');
-            hideSaveButtons();
-
         } else {
-            // ❌ ERROR PATH - enhanced with modal for connection errors
-
             console.error('❌ Execute failed:', result.message);
 
             // Stop progress polling on failure
             stopProgressPolling();
             hideProgress();
 
-            // IMPORTANT: Reset button state so user can retry
+            // Reset button on failure
             executeBtn.disabled = false;
             executeBtn.classList.remove('btn-loading');
             executeBtn.textContent = 'Execute Code';
             executeBtn.style.opacity = '1';
             executeBtn.style.cursor = 'pointer';
-
-            // NEW: Show modal for connection failures, toast for other errors
-            if (result.message.includes('Raspberry Pi') ||
-                result.message.includes('connection') ||
-                result.message.includes('connect')) {
-
-                showErrorModal(
-                    'Test Execution Failed',
-                    result.message,
-                    'Unable to establish connection with the remote test infrastructure. Please verify that the Test devices are online and accessible from your network.'
-                );
-            } else {
-                // Regular toast for non-connection errors
-                showToast(result.message, 'error');
-            }
+            showToast(result.message, 'error');
         }
 
     } catch (error) {
-        // ❌ NETWORK/FETCH ERROR PATH
-
         console.error('❌ Execution error:', error);
 
         // Stop progress polling on error
         stopProgressPolling();
         hideProgress();
 
-        // IMPORTANT: Reset button state so user can retry
+        // Reset button on error
         executeBtn.disabled = false;
         executeBtn.classList.remove('btn-loading');
         executeBtn.textContent = 'Execute Code';
         executeBtn.style.opacity = '1';
         executeBtn.style.cursor = 'pointer';
-
-        // NEW: Show modal for network/fetch errors, toast for other errors
-        if (error.message.includes('fetch') ||
-            error.message.includes('network') ||
-            error.message.includes('connection') ||
-            error.message.includes('Failed to fetch')) {
-
-            showErrorModal(
-                'Network Connection Error',
-                'Failed to communicate with the test server.',
-                `Technical Details: ${error.message}\n\nThis could be due to network connectivity issues or server unavailability.`
-            );
-        } else {
-            // Regular toast for other JavaScript errors
-            showToast('Code execution failed: ' + error.message, 'error');
-        }
+        showToast('Code execution failed: ' + error.message, 'error');
     }
 }
 

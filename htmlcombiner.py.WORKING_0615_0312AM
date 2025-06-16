@@ -1,6 +1,5 @@
 import os
 import glob
-import json
 import re
 from datetime import datetime
 
@@ -17,74 +16,45 @@ def delete_combined_report():
         print(f"File '{combined_report_path}' does not exist.")
 
 
-def load_order_mapping():
-    """Load the order mapping created by Auto_test_gen.py"""
-    mapping_file = os.path.join("generated-scripts", "order_mapping.json")
-    if os.path.exists(mapping_file):
-        try:
-            with open(mapping_file, 'r') as f:
-                order_mapping = json.load(f)
-            print(f"DEBUG: Loaded order mapping with {len(order_mapping)} entries")
-            return order_mapping
-        except Exception as e:
-            print(f"ERROR: Failed to load order mapping: {e}")
-            return None
-    else:
-        print("WARNING: Order mapping file not found")
-        return None
-
+# Add this function to your htmlcombiner.py (replace the existing get_analyzed_scripts function)
 
 def get_analyzed_scripts():
-    """Get list of all analyzed Python scripts using order mapping"""
-
-    # **NEW: Try to use order mapping first**
-    order_mapping = load_order_mapping()
-
-    if order_mapping:
-        # Use the explicit order from mapping
-        script_info = []
-        for item in sorted(order_mapping, key=lambda x: x['order_index']):
-            script_path = f"generated-scripts/{item['script_name']}"
-            if os.path.exists(script_path):
-                script_info.append({
-                    'file': item['script_name'],
-                    'path': script_path,
-                    'name': item['test_case_name'],
-                    'order_index': item['order_index'],
-                    'source_file': item['source_file']
-                })
-                print(f"DEBUG: Test Case {item['order_index']} → {item['script_name']} (from {item['source_file']})")
-            else:
-                print(f"WARNING: Mapped script not found: {script_path}")
-
-        if script_info:
-            print(f"DEBUG: Using order mapping - {len(script_info)} scripts in correct upload order")
-            return script_info
-
-    # **FALLBACK: Use alphabetical if no mapping available**
+    """Get list of all analyzed Python scripts in the SAME order as run_commands.py"""
     scripts = glob.glob("generated-scripts/*.py")
+
     if not scripts:
         print("No scripts found.")
         return []
 
-    # Exclude the mapping file itself and sort alphabetically
-    scripts = [s for s in scripts if not s.endswith("order_mapping.json")]
-    scripts.sort()
+    # CRITICAL: Use the SAME sorting logic as run_commands.py
+    # Sort by creation time to maintain consistent order with run_commands.py
+    scripts_with_time = []
+    for script_path in scripts:
+        try:
+            creation_time = os.path.getctime(script_path)
+            scripts_with_time.append((script_path, creation_time))
+        except OSError:
+            # Fallback to alphabetical order if creation time unavailable
+            scripts_with_time.append((script_path, 0))
+
+    # Sort by creation time (oldest first) - SAME AS run_commands.py
+    scripts_with_time.sort(key=lambda x: x[1])
 
     script_info = []
-    for i, script_path in enumerate(scripts, 1):
+    for i, (script_path, creation_time) in enumerate(scripts_with_time, 1):
         script_name = os.path.basename(script_path)
+        # Convert script name to readable test case name
         test_case_name = script_name.replace('.py', '').replace('_', ' ').title()
         script_info.append({
             'file': script_name,
             'path': script_path,
             'name': test_case_name,
             'order_index': i,
-            'source_file': 'Unknown'  # No mapping available
+            'creation_time': creation_time  # For debugging
         })
-        print(f"DEBUG: Test Case {i} → {script_name} (alphabetical fallback)")
+        print(f"DEBUG: Test Case {i} → {script_name} (created: {creation_time})")
 
-    print(f"DEBUG: Using alphabetical fallback - {len(script_info)} scripts")
+    print(f"DEBUG: Script processing order matches run_commands.py")
     return script_info
 
 

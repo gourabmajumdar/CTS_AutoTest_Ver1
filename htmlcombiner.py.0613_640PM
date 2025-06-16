@@ -1,6 +1,6 @@
 import os
+import textile
 import glob
-import json
 import re
 from datetime import datetime
 
@@ -17,74 +17,21 @@ def delete_combined_report():
         print(f"File '{combined_report_path}' does not exist.")
 
 
-def load_order_mapping():
-    """Load the order mapping created by Auto_test_gen.py"""
-    mapping_file = os.path.join("generated-scripts", "order_mapping.json")
-    if os.path.exists(mapping_file):
-        try:
-            with open(mapping_file, 'r') as f:
-                order_mapping = json.load(f)
-            print(f"DEBUG: Loaded order mapping with {len(order_mapping)} entries")
-            return order_mapping
-        except Exception as e:
-            print(f"ERROR: Failed to load order mapping: {e}")
-            return None
-    else:
-        print("WARNING: Order mapping file not found")
-        return None
-
-
 def get_analyzed_scripts():
-    """Get list of all analyzed Python scripts using order mapping"""
-
-    # **NEW: Try to use order mapping first**
-    order_mapping = load_order_mapping()
-
-    if order_mapping:
-        # Use the explicit order from mapping
-        script_info = []
-        for item in sorted(order_mapping, key=lambda x: x['order_index']):
-            script_path = f"generated-scripts/{item['script_name']}"
-            if os.path.exists(script_path):
-                script_info.append({
-                    'file': item['script_name'],
-                    'path': script_path,
-                    'name': item['test_case_name'],
-                    'order_index': item['order_index'],
-                    'source_file': item['source_file']
-                })
-                print(f"DEBUG: Test Case {item['order_index']} → {item['script_name']} (from {item['source_file']})")
-            else:
-                print(f"WARNING: Mapped script not found: {script_path}")
-
-        if script_info:
-            print(f"DEBUG: Using order mapping - {len(script_info)} scripts in correct upload order")
-            return script_info
-
-    # **FALLBACK: Use alphabetical if no mapping available**
+    """Get list of all analyzed Python scripts"""
     scripts = glob.glob("generated-scripts/*.py")
-    if not scripts:
-        print("No scripts found.")
-        return []
-
-    # Exclude the mapping file itself and sort alphabetically
-    scripts = [s for s in scripts if not s.endswith("order_mapping.json")]
-    scripts.sort()
-
     script_info = []
-    for i, script_path in enumerate(scripts, 1):
+
+    for script_path in scripts:
         script_name = os.path.basename(script_path)
+        # Convert script name to readable test case name
         test_case_name = script_name.replace('.py', '').replace('_', ' ').title()
         script_info.append({
             'file': script_name,
             'path': script_path,
-            'name': test_case_name,
-            'order_index': i,
-            'source_file': 'Unknown'  # No mapping available
+            'name': test_case_name
         })
-        print(f"DEBUG: Test Case {i} → {script_name} (alphabetical fallback)")
 
-    print(f"DEBUG: Using alphabetical fallback - {len(script_info)} scripts")
     return script_info
 
 
@@ -97,6 +44,19 @@ def read_tool_output(tool_file):
         except Exception as e:
             return f"Error reading {tool_file}: {e}"
     return ""
+
+
+def txt_html_converter(content, add_pre_tags=True):
+    """Convert text content to HTML"""
+    if not content.strip():
+        return "<p><em>No issues found or no output generated.</em></p>"
+
+    if add_pre_tags:
+        # For code analysis output, preserve formatting
+        return f"<pre>{content}</pre>"
+    else:
+        # For other content, use textile
+        return textile.textile(content)
 
 
 def parse_individual_summary_for_tool_status(summary_content):
@@ -156,67 +116,106 @@ def parse_individual_summary_for_tool_status(summary_content):
     return tool_status
 
 
-def read_individual_tool_output(tool_name, test_case_number):
-    """Read individual tool output for a specific test case"""
-    file_map = {
-        'flake8': f'reports/flake8_output_{test_case_number}.txt',
-        'pylint': f'reports/pylint_output_{test_case_number}.txt',
-        'black': f'reports/black_output_{test_case_number}.txt',
-        'bandit': f'reports/bandit_output_{test_case_number}.html'
-    }
+def filter_bandit_html_for_script(bandit_html, script_name):
+    """Filter Bandit HTML to show only issues for a specific script"""
+    if not bandit_html or not script_name:
+        return bandit_html
 
-    file_path = file_map.get(tool_name.lower())
-    if not file_path:
-        print(f"DEBUG: No file mapping for tool {tool_name}")
-        return None
+    # Parse the HTML to extract only issues for this script
+    lines = bandit_html.split('\n')
+    filtered_lines = []
+    in_issue_block = False
+    current_issue_for_script = False
+    issue_block_lines = []
 
-    if not os.path.exists(file_path):
-        print(f"DEBUG: Individual tool output file not found: {file_path}")
-        return None
+    for line in lines:
+        # Check if we're starting an issue block
+        if '<div id="issue-' in line:
+            in_issue_block = True
+            current_issue_for_script = False
+            issue_block_lines = [line]
+            continue
 
-    try:
-        with open(file_path, 'r') as f:
-            content = f.read()
-        print(f"DEBUG: Successfully read individual {tool_name} output for test case {test_case_number}")
-        return content
-    except Exception as e:
-        print(f"ERROR: Failed to read {file_path}: {e}")
-        return None
+        # If we're in an issue block, collect lines
+        if in_issue_block:
+            issue_block_lines.append(line)
+
+            # Check if this issue is for our script
+            if script_name in line or f"generated-scripts/{script_name}" in line:
+                current_issue_for_script = True
+
+            # Check if we're ending the issue block
+            if '</div>' in line and 'issue-block' in ''.join(issue_block_lines):
+                if current_issue_for_script:
+                    # This issue is for our script, add it to filtered output
+                    filtered_lines.extend(issue_block_lines)
+                # Reset for next issue
+                in_issue_block = False
+                issue_block_lines = []
+                continue
+
+        # If not in issue block, keep structural HTML
+        if not in_issue_block:
+            filtered_lines.append(line)
+
+    return '\n'.join(filtered_lines)
 
 
-def get_tool_result_for_test_case(tool_name, test_case_number, individual_summary_status):
-    """Get tool result for a specific test case using individual outputs"""
+def extract_script_specific_issues_with_individual_summary(tool_output, script_name, tool_name,
+                                                           individual_summary_status):
+    """Extract issues using INDIVIDUAL file summary status (FIXED VERSION)"""
 
-    print(f"DEBUG: Getting {tool_name} result for test case {test_case_number}")
-    print(f"DEBUG: Individual summary status: {individual_summary_status}")
-
-    # Get tool status from individual summary
+    # Use individual file summary status instead of global
     tool_info = individual_summary_status.get(tool_name.lower(), {})
     has_issues_from_summary = tool_info.get('has_issues', False)
-    return_code = tool_info.get('return_code', 0)
-
-    print(f"DEBUG: Tool {tool_name} - has_issues: {has_issues_from_summary}, return_code: {return_code}")
 
     if not has_issues_from_summary:
-        print(f"DEBUG: No issues found for {tool_name} on test case {test_case_number}")
-        return {"has_issues": False, "content": "No issues found for this script.", "return_code": return_code}
+        return {"has_issues": False, "content": "No issues found for this script.",
+                "return_code": tool_info.get('return_code', 0)}
 
-    # Try to read individual tool output
-    individual_output = read_individual_tool_output(tool_name, test_case_number)
-
-    if individual_output and individual_output.strip():
-        print(f"DEBUG: Using individual {tool_name} output for test case {test_case_number}")
-        return {"has_issues": True, "content": individual_output, "return_code": return_code}
-    else:
-        print(f"DEBUG: No individual output found for {tool_name} test case {test_case_number}")
+    # If summary says there are issues, extract them from tool output
+    if not tool_output or not script_name:
         return {
             "has_issues": True,
-            "content": f"Issues detected for this script (Return Code: {return_code}), but detailed output could not be retrieved.",
-            "return_code": return_code
+            "content": f"Issues detected but no detailed output available.",
+            "return_code": tool_info.get('return_code', 'Unknown')
         }
 
-def create_organized_html_report_with_individual_outputs(output_file):
-    """Create HTML report using individual tool outputs for each test case"""
+    # Tool-specific extraction logic
+    if tool_name == 'bandit':
+        # For bandit, filter the HTML to show only issues for this script
+        filtered_html = filter_bandit_html_for_script(tool_output, script_name)
+
+        # Check if the filtered HTML actually contains any issues for this script
+        if script_name in filtered_html or f"generated-scripts/{script_name}" in filtered_html:
+            return {"has_issues": True, "content": filtered_html, "return_code": tool_info.get('return_code', 1)}
+        else:
+            return {"has_issues": False, "content": "No issues found for this script.",
+                    "return_code": tool_info.get('return_code', 0)}
+
+    # For other tools, extract script-specific lines
+    lines = tool_output.split('\n')
+    script_issues = []
+
+    for line in lines:
+        # Check if line contains the script name
+        if script_name in line or f"generated-scripts/{script_name}" in line:
+            script_issues.append(line)
+        # For pylint, also check for lines that start with the script path
+        elif line.startswith(f"generated-scripts/{script_name}:"):
+            script_issues.append(line)
+
+    if script_issues:
+        return {"has_issues": True, "content": '\n'.join(script_issues), "return_code": tool_info.get('return_code', 1)}
+    else:
+        # Summary says there are issues but we can't extract specifics for this file
+        # This means issues exist in OTHER files, but not this one
+        return {"has_issues": False, "content": "No issues found for this script.",
+                "return_code": tool_info.get('return_code', 0)}
+
+
+def create_organized_html_report_with_summary(output_file):
+    """FIXED VERSION - Create HTML report using individual summary files for each test case"""
     delete_combined_report()
 
     # Get all analyzed scripts
@@ -229,8 +228,8 @@ def create_organized_html_report_with_individual_outputs(output_file):
     # Read main summary content
     main_summary_content = read_tool_output('reports/summary.txt')
 
-    # Read combined tool outputs for collective analysis
-    combined_tool_outputs = {
+    # Read tool outputs
+    tool_outputs = {
         'flake8': read_tool_output('reports/flake8_output.txt'),
         'pylint': read_tool_output('reports/pylint_output.txt'),
         'black': read_tool_output('reports/black_output.txt'),
@@ -299,7 +298,7 @@ def create_organized_html_report_with_individual_outputs(output_file):
     <h2>Individual Test Case Analysis</h2>
 """
 
-    # Add individual test case analysis using individual tool outputs
+    # Add individual test case analysis
     for i, script in enumerate(analyzed_scripts, 1):
         html_content += f"""
     <div id="test-case-{i}" class="test-case">
@@ -309,14 +308,14 @@ def create_organized_html_report_with_individual_outputs(output_file):
         </div>
 """
 
-        # Read individual summary file for THIS specific script
+        # FIXED: Read individual summary file for THIS specific script
         individual_summary_path = f'reports/summary{i}.txt'
         individual_summary_content = read_tool_output(individual_summary_path)
         individual_tool_status = parse_individual_summary_for_tool_status(individual_summary_content)
 
         print(f"DEBUG - Test Case {i} ({script['file']}) tool status: {individual_tool_status}")
 
-        # Add analysis for each tool using individual outputs
+        # Add analysis for each tool
         tools = [
             ('flake8', 'Flake8 - Style & Lint Checks', 'PEP 8 compliance and style issues'),
             ('pylint', 'Pylint - Static Code Analysis', 'Code quality and potential bugs'),
@@ -325,8 +324,12 @@ def create_organized_html_report_with_individual_outputs(output_file):
         ]
 
         for tool_key, tool_title, tool_desc in tools:
-            # NEW: Use individual tool outputs instead of trying to extract from combined
-            result = get_tool_result_for_test_case(tool_key, i, individual_tool_status)
+            tool_output = tool_outputs.get(tool_key, '')
+
+            # FIXED: Use individual summary status instead of global
+            result = extract_script_specific_issues_with_individual_summary(
+                tool_output, script['file'], tool_key, individual_tool_status
+            )
 
             html_content += f"""
         <div class="tool-section {tool_key}">
@@ -351,7 +354,7 @@ def create_organized_html_report_with_individual_outputs(output_file):
 
     html_content += '</div>\n'
 
-    # Add collective analysis section using combined outputs
+    # Add collective analysis section
     html_content += f"""
 <div id="collective-analysis">
     <h2>Collective Analysis - All Test Cases</h2>
@@ -359,10 +362,10 @@ def create_organized_html_report_with_individual_outputs(output_file):
 """
 
     collective_tools = [
-        ('flake8', 'Flake8 - Complete Output', combined_tool_outputs['flake8']),
-        ('pylint', 'Pylint - Complete Output', combined_tool_outputs['pylint']),
-        ('black', 'Black - Complete Output', combined_tool_outputs['black']),
-        ('bandit', 'Bandit - Complete Output', combined_tool_outputs['bandit'])
+        ('flake8', 'Flake8 - Complete Output', tool_outputs['flake8']),
+        ('pylint', 'Pylint - Complete Output', tool_outputs['pylint']),
+        ('black', 'Black - Complete Output', tool_outputs['black']),
+        ('bandit', 'Bandit - Complete Output', tool_outputs['bandit'])
     ]
 
     for tool_key, title, content in collective_tools:
@@ -412,8 +415,6 @@ def clean_reports_folder():
                     continue
                 if filename.startswith("summary"):
                     continue
-                if filename.endswith("_output.txt") or filename.endswith("_output.html"):
-                    continue
                 if os.path.isfile(file_path):
                     os.remove(file_path)
                     files_removed += 1
@@ -429,12 +430,12 @@ def clean_reports_folder():
 if __name__ == "__main__":
     output_file = "reports/combinedreport.html"
 
-    print("Starting organized HTML report generation with individual outputs...")
+    print("Starting organized HTML report generation...")
 
-    # Create organized report using individual tool outputs
-    create_organized_html_report_with_individual_outputs(output_file)
+    # Create organized report
+    create_organized_html_report_with_summary(output_file)
 
-    # Clean up temporary files (but keep our new individual outputs!)
+    # Clean up temporary files
     clean_reports_folder()
 
     print("Organized HTML report generation completed!")

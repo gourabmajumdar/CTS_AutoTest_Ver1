@@ -10,6 +10,8 @@ import time
 import glob
 import threading
 from datetime import datetime
+import signal
+import atexit
 
 # Initialize Flask with explicit static folder configuration
 app = Flask(__name__,
@@ -44,6 +46,29 @@ ALLOWED_EXTENSIONS = {
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# ================================================================================================
+# PROGRESS FILES CLEANUP FUNCTIONS
+# ================================================================================================
+def progress_cleanup():
+    """Simple cleanup - just remove progress files"""
+    try:
+        progress_files = ['progress_generate.json', 'progress_review.json', 'progress_execute.json']
+        for file in progress_files:
+            if os.path.exists(file):
+                os.remove(file)
+                print(f"[CLEANUP] Removed {file}")
+    except Exception as e:
+        print(f"[CLEANUP] Error: {e}")
+
+def signal_handler(sig, frame):
+    """Handle Ctrl+C"""
+    print("\n[SHUTDOWN] Ctrl+C pressed - cleaning up...")
+    progress_cleanup()
+    print("[SHUTDOWN] Cleanup complete")
+    sys.exit(0)
+
+# Register the signal handler
+signal.signal(signal.SIGINT, signal_handler)
 
 # ================================================================================================
 # PROGRESS TRACKING FUNCTIONS
@@ -144,7 +169,8 @@ def upload_files():
             if file and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
                 # Add timestamp to avoid conflicts
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_')
+                #timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_')
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S%f')[:-3] + '_'  # Include milliseconds
                 filename = timestamp + filename
                 file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 file.save(file_path)
@@ -406,6 +432,14 @@ def generate_code():
     global generated_scripts_info
     global generation_lock
 
+    # CLEANUP: Remove progress file if exists from previous run
+    try:
+        if os.path.exists('progress_generate.json'):
+            os.remove('progress_generate.json')
+            print("[CLEANUP] Removed progress_generate.json after successful generation")
+    except Exception as e:
+        print(f"[CLEANUP] Error removing progress_generate.json: {e}")
+
     # Use lock to prevent multiple simultaneous generations
     with generation_lock:
         try:
@@ -565,7 +599,7 @@ def generate_code():
                 time.sleep(0.8)
 
                 update_progress('generate', 98, 'Processing', 'Preparing response')
-                time.sleep(0.5)
+                time.sleep(0.8)
 
                 # Step 5: Complete (100%)
                 update_progress('generate', 100, 'Completed', 'Code generation completed successfully!', True)
@@ -646,6 +680,14 @@ def execute_code():
     """Execute all generated test scripts on remote RPI via SSH with real progress tracking"""
     global generated_scripts_info
 
+    # Clean up progress file if exists from previous Run
+    try:
+        if os.path.exists('progress_execute.json'):
+            os.remove('progress_execute.json')
+            print("[CLEANUP] Removed progress_execute.json after completion")
+    except Exception as e:
+        print(f"[CLEANUP] Error removing progress_execute.json: {e}")
+
     try:
         data = request.get_json()
         test_case_id = data.get('test_case_id', None)
@@ -689,7 +731,7 @@ def execute_code():
 
         if not connected:
             update_progress('execute', 0, 'Error', 'Failed to connect to any Raspberry Pi', True)
-            return jsonify({'success': False, 'message': 'Failed to connect to any Raspberry Pi.'})
+            return jsonify({'success': False, 'message': 'Failed to connect to the Remote Test Device.'})
 
         # Step 2: Connection established (40%)
         update_progress('execute', 40, 'Processing', 'Running reviewed Python test cases')
@@ -792,6 +834,14 @@ def execute_single_script(ssh, script_info):
 @app.route('/review', methods=['POST'])
 def review_code():
     """Review Python code quality for individual or all test cases with real progress tracking"""
+    # Clean up progress files if exists
+    try:
+        if os.path.exists('progress_review.json'):
+            os.remove('progress_review.json')
+            print("[CLEANUP] Removed progress_review.json after completion")
+    except Exception as e:
+        print(f"[CLEANUP] Error removing progress_review.json: {e}")
+
     try:
         data = request.get_json()
         test_case_id = data.get('test_case_id', None)
@@ -873,20 +923,14 @@ TOX ERRORS:
 """
 
             # Generate review for specific test case
-            review_report = f"""=== PYTHON CODE REVIEW REPORT ===
-Test Case ID: {test_case_id}
-Review Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Language: Python
-
-=== INDIVIDUAL TEST CASE ANALYSIS ===
+            review_report = f"""=== INDIVIDUAL TEST CASE ANALYSIS ===
 {summary_content}
 
 === ACTIONS REQUIRED ===
-• Review the detailed analysis above
-• Click "Open Report" for HTML formatted results
-• Click "Download Report" to save the complete analysis
-
-Status: Code review completed successfully for Test Case {test_case_id}."""
+   ✅ 1. Look for [PASS] ✅ or [FAIL] ❌ indicators in the analysis above
+   ✅ 2. CHECK "OPEN REPORT" FOR COMPREHENSIVE HTML RESULTS
+   ✅ 3. CLICK THE **"EXECUTE CODE"** BUTTON IF NO CRITICAL ISSUES
+   ❌ 4. DO NOT PROCEED IF STATIC CODE ANALYSIS FAILS OR SECURITY VULNERABILITIES ARE FOUND"""
 
             # Step 6: Complete (100%)
             update_progress('review', 100, 'Completed', 'Code review completed successfully!', True)
@@ -926,20 +970,14 @@ Status: Code review completed successfully for Test Case {test_case_id}."""
                     individual_summary_content = main_summary_content
                     print(f"[INFO] Using main summary as fallback for Test Case {test_case_id}")
 
-                individual_report = f"""=== PYTHON CODE REVIEW REPORT ===
-Test Case: {script_info['test_case_name']}
-Script: {script_info['script_name']}
-Review Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-=== INDIVIDUAL ANALYSIS ===
+                individual_report = f"""=== INDIVIDUAL ANALYSIS ===
 {individual_summary_content}
 
 === ACTIONS REQUIRED ===
-• Review the analysis above for this specific test case
-• Check "Open Report" for comprehensive HTML results
-• Proceed to execution if no critical issues found
-
-Status: Individual review completed for {script_info['test_case_name']}."""
+   ✅ 1. Look for [PASS] ✅ or [FAIL] ❌ indicators in the analysis above
+   ✅ 2. CHECK "OPEN REPORT" FOR COMPREHENSIVE HTML RESULTS
+   ✅ 3. CLICK THE **"EXECUTE CODE"** BUTTON IF NO CRITICAL ISSUES
+   ❌ 4. DO NOT PROCEED IF STATIC CODE ANALYSIS FAILS OR SECURITY VULNERABILITIES ARE FOUND"""
 
                 individual_reports.append({
                     'test_case_id': test_case_id,
@@ -1002,4 +1040,10 @@ def server_error(e):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=app.config['DEBUG'])
+    #app.run(host='0.0.0.0', port=port, debug=app.config['DEBUG'])
+    try:
+        app.run(host='0.0.0.0', port=port, debug=app.config['DEBUG'])
+    except KeyboardInterrupt:
+        print("\n[SHUTDOWN] Interrupted")
+    finally:
+        progress_cleanup()
